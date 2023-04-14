@@ -393,7 +393,7 @@ res.failed <- subset(res.failed, subset = grepl(Factor, pattern = "(^#.*|^Too (m
 
 dep.var.cats <- sub(dep.vars, pattern = "^.*:", replacement = "")
 dep.var.conts <- sub(grep(dep.vars, pattern = ".*:.*", value = T), pattern = ":.*$", replacement = "")
-df <- df[df %>% dplyr::select(all_of(c(dep.var.conts))) %>% is.na %>% rowSums() == 0, , drop = F]
+df <- df[df %>% dplyr::select(all_of(c(dep.var.conts, grep(dep.vars, pattern = ":", value = T, invert = T)))) %>% is.na %>% rowSums() == 0, , drop = F]
 
 if(all(sub.vars != "ALL_SAMPLES")) {
   df <- df %>% mutate(across(.cols = c(dep.var.cats, sub.vars), .fns = as.factor))
