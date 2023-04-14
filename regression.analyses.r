@@ -393,6 +393,8 @@ res.failed <- subset(res.failed, subset = grepl(Factor, pattern = "(^#.*|^Too (m
 
 dep.var.cats <- sub(dep.vars, pattern = "^.*:", replacement = "")
 dep.var.conts <- sub(grep(dep.vars, pattern = ".*:.*", value = T), pattern = ":.*$", replacement = "")
+df <- df[df %>% dplyr::select(all_of(c(dep.var.conts))) %>% is.na %>% rowSums() == 0, , drop = F]
+
 if(all(sub.vars != "ALL_SAMPLES")) {
   df <- df %>% mutate(across(.cols = c(dep.var.cats, sub.vars), .fns = as.factor))
   N <- with(df, aggregate(df %>%
@@ -412,10 +414,13 @@ if(all(sub.vars != "ALL_SAMPLES")) {
                                    by = sapply(sub.vars, FUN = function(x) {get(x)}, simplify = F), FUN = function(y) {if(is.factor(y)) {table(y, useNA = "always")} else {summary_f(y)}})) %>%
     as.matrix() %>% as.data.frame(stringsAsFactors = F) %>% mutate(across(.cols = !sub.vars, .fns = as.numeric))
 
-  valid.cols <- foreach(i = colnames(df.summary), .combine = c) %do% 
-    {if(i %in% sub.vars) {i} else
+  valid.cols <- foreach(i = colnames(df.summary), .combine = c) %do% {
+     if(i %in% sub.vars) {i} else
      if(is.na(sum(df.summary[i]))) {i} else
-     if(sum(df.summary[i]) >0) {i}}
+     if(str_contains(x = i, pattern = sub(dep.var.conts, pattern = "(^.*$)", replacement = "\\1\\."), logic = "OR")) {
+       if(!grepl(i, pattern = "\\.NA's$")) {i}} else
+     if(sum(df.summary[i]) >0) {i}
+      }
   df.summary <- df.summary[valid.cols]
   
   df.summary.fin <- cbind(df.summary, N)
@@ -423,7 +428,22 @@ if(all(sub.vars != "ALL_SAMPLES")) {
   df.summary.fin <- as.data.frame(t(df.summary.fin[with(df.summary.fin, order(get(sub.vars))),]), stringsAsFactors = F)
   df.summary.fin[c((length(sub.vars)+1):nrow(df.summary.fin)),] <- df.summary.fin[c((length(sub.vars)+1):nrow(df.summary.fin)),] %>% 
     mutate(across(.fns = as.numeric))
-} else {
+
+  N <- nrow(df)
+  df.summary <- df %>% dplyr::select(dep.var.cats, dep.var.conts, other.factors) %>% 
+    sapply(., summary) %>% unlist() %>% as.data.frame()
+  df.summary.fin.all <- rbind(df.summary, N)
+  rownames(df.summary.fin.all)[nrow(df.summary.fin.all)] <- "N"
+  df.summary.fin.all <- df.summary.fin.all[c(nrow(df.summary.fin.all), 1:(nrow(df.summary.fin.all)-1)), , drop = F]
+  rownames(df.summary.fin) <- sub(rownames(df.summary.fin), pattern = "'s", replacement = "")
+  rownames(df.summary.fin.all) <- sub(rownames(df.summary.fin.all), pattern = "'s", replacement = "")
+  if(!all(rownames(df.summary.fin.all) %in% rownames(df.summary.fin))) {stop("Creation of the clinical data summary table has failed.")}
+  df.summary.fin <- merge(x = df.summary.fin, y = df.summary.fin.all, all.x = T, by.x = 0, by.y = 0, sort = F)
+  df.summary.fin <- df.summary.fin[order(as.numeric(df.summary.fin[["Row.names"]] %in% sub.vars), decreasing = T),]
+  rownames(df.summary.fin) <- df.summary.fin[["Row.names"]]
+  df.summary.fin[["Row.names"]] <- NULL
+  df.summary.fin[sub.vars, "."] <- "All_samples"
+  } else {
   df <- df %>% mutate(across(.cols = c(dep.var.cats), .fns = as.factor))
   N <- nrow(df)
   df.summary <- df %>% dplyr::select(dep.var.cats, dep.var.conts, other.factors) %>% 
