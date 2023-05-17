@@ -426,7 +426,7 @@ if(all(sub.vars != "ALL_SAMPLES")) {
   df.summary.fin <- cbind(df.summary, N)
   df.summary.fin <- df.summary.fin[c(1:length(sub.vars), ncol(df.summary.fin), (length(sub.vars)+1):(ncol(df.summary.fin)-1))]
   df.summary.fin <- as.data.frame(t(df.summary.fin[with(df.summary.fin, order(get(sub.vars))),]), stringsAsFactors = F)
-  df.summary.fin[c((length(sub.vars)+1):nrow(df.summary.fin)),] <- df.summary.fin[c((length(sub.vars)+1):nrow(df.summary.fin)),] %>% 
+  df.summary.fin[c((length(sub.vars)+1):nrow(df.summary.fin)),] <- df.summary.fin[c((length(sub.vars)+1):nrow(df.summary.fin)), , drop = FALSE] %>% 
     mutate(across(.fns = as.numeric))
 
   N <- nrow(df)
