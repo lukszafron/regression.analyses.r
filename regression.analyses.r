@@ -4,7 +4,7 @@ cat("Program path:", unlist(strsplit(grep(commandArgs(), pattern = "file=", valu
 
 args <- commandArgs(trailingOnly = T)
 
-if(length(args) != 14) {cat(paste("The number of provided arguments is incorrect:", 
+if(length(args) != 15) {cat(paste("The number of provided arguments is incorrect:", 
                                       length(args), "instead of 14.
                                        The arguments should be placed in the following order:
                                        1 - a path to a semicolon-separated CSV file containing the variables to be analyzed,
@@ -20,7 +20,8 @@ if(length(args) != 14) {cat(paste("The number of provided arguments is incorrect
                                        11 - a vector listing the types of regression analyses to be performed, 'coxph' for Cox regression, 'lrm' for logistic regression, separated with a semicolon,
                                        12 - a path to the working directory,
                                        13 - a statistical significance level (alpha) to be used,
-                                       14 - should the Benjamini-Hochberg correction for multiple comparisons be used ('TRUE', 'FALSE').\n"))
+                                       14 - should the Benjamini-Hochberg correction for multiple comparisons be used ('TRUE', 'FALSE')
+                                       15 - should the main independent variables be calibrated so that their values range from 0 to 1 ('TRUE', 'FALSE')\n"))
   stop("Incorrect number of arguments.")}
 
 args
@@ -57,6 +58,8 @@ main.samples <- args[2]
 main.wo.samples <- main.table %>% dplyr::select(-main.samples)
 main.list <- colnames(main.table)[colnames(main.table) != main.samples]
 is.continuous <- as.logical(args[3])
+calibrate <- as.logical(args[15])
+
 if(!is.continuous) {
   for(i in colnames(main.table)) {
   main.table[,i] <- as.factor(main.table[,i])}} else if(!all(sapply(main.wo.samples, is.numeric))) {
@@ -64,6 +67,12 @@ if(!is.continuous) {
   warning(paste0("The main table contains some non-numeric values which are not allowed for continuous variables:\n", paste(non.numeric, collapse = ", "),".\n These variables will be deleted."))
   main.table <- main.table %>% dplyr::select(-non.numeric)
   }
+
+if(is.continuous) {
+  if(calibrate) {
+    main.table <- main.table %>% mutate(across(.cols = (!main.samples), .fns = function(x) {x/max(x)}))
+  }
+}
 
 df <- as.data.frame(fread(file = args[4], header = T, check.names = T, sep = ";", na.strings = c("", NA)))
 df <- df %>% transmute(across(.cols = everything(), .fns = function(x){if(is.character(x)) {gsub(x, pattern = "(\\.| )+", replacement = "_")} else {x}}))
@@ -82,7 +91,7 @@ other.continuous.factors.vec <- args[8]
 other.continuous.factors <- unlist(strsplit(other.continuous.factors.vec, split = ";"))
 other.factors <- c(other.discrete.factors, other.continuous.factors)
 other.factors <- other.factors[other.factors != "NA"]
-if(length(other.factors) == 0) {variate <- "univar"} else {variate <- "multivar"}
+if(length(other.factors) == 0) {variable <- "univar"} else {variable <- "multivar"}
 
 dep.vars <- unlist(strsplit(dep.vars.vec, split = ";"))
 sub.vars.vec <- args[9]
@@ -107,7 +116,7 @@ names(sub.vars.list) <- sub.vars} else if(length(sub.vars) == 1 & sub.vars == "A
 sub.vars.list <- list("ALL_SAMPLES" = "ALL_SAMPLES")} else 
   {stop("The subsetting vars list seems to be incorrect.")}
 
-file.name.prefix <- paste("Reg_anal", paste(atypes, collapse = ","), variate, main.table.name, paste("cont", is.continuous, sep = ":"), df.table.name, paste0("dep_vars:", paste(dep.vars, collapse = ",")), paste0("group_vars:", paste(sub.vars, collapse = ",")), paste0("other_vars:", paste(other.factors, collapse = "+")), sep = ".")
+file.name.prefix <- paste("Reg_anal", paste(atypes, collapse = ","), variable, main.table.name, paste("cont", is.continuous, sep = ":"), df.table.name, paste0("dep_vars:", paste(dep.vars, collapse = ",")), paste0("group_vars:", paste(sub.vars, collapse = ",")), paste0("other_vars:", paste(other.factors, collapse = "+")), paste0("cal:", calibrate), sep = ".")
 file.name.prefix <- gsub(file.name.prefix, pattern = "BAM_files_with_duplicates", replacement = "BAM_w.dups")
 file.name.prefix <- gsub(file.name.prefix, pattern = "BAM_files_without_duplicates", replacement = "BAM_wo.dups")
 file.name.prefix <- gsub(file.name.prefix, pattern = "TRUE", replacement = "T")
@@ -453,32 +462,9 @@ if(all(sub.vars != "ALL_SAMPLES")) {
   df.summary.fin <- df.summary.fin[c(nrow(df.summary.fin), 1:(nrow(df.summary.fin)-1)), , drop = F]
 }
 
-wb <- createWorkbook()
-
-xlsx.add.sheet <- function(df, df.name){
-  if(ncol(df) > 2**14 | nrow(df) > 2**20){
-    file.name.prefix <- sub(stri_reverse(substr(stri_reverse(file.name.prefix), start = 1, stop = 202)), pattern = "^\\.*", replacement = "")
-    if(df.name == "Data") {
-      write.table(x = df, row.names = F, quote = F, sep = ";", file = paste(file.name.prefix, df.name, "csv", sep = "."))} else {
-      write.table(x = df, row.names = T, col.names = NA, quote = F, sep = ";", file = paste(file.name.prefix, df.name, "csv", sep = "."))}
-} else {
-  addWorksheet(wb = wb, sheetName = df.name)
-  if(df.name == "Data") {
-    writeData(wb = wb, sheet = df.name, x = df, rowNames = F, na.string = "NA", keepNA = T) 
-  } else if(df.name == "Clin.data_summary") {
-      writeData(wb = wb, sheet = df.name, x = df, rowNames = T, colNames = F, na.string = "NA", keepNA = T)
-  } else {
-      writeData(wb = wb, sheet = df.name, x = df, rowNames = T, na.string = "NA", keepNA = T)}}}
-
-xlsx.add.sheet(df = df, df.name = "Data")
-xlsx.add.sheet(df = df.summary.fin, df.name = "Clin.data_summary")
-xlsx.add.sheet(df = res, df.name = "All_res")
-xlsx.add.sheet(df = res.sig.all, df.name = "Sig_res")
-xlsx.add.sheet(df = res.failed, df.name = "Failed_res")
-
 suppressWarnings(rm(i))
 
-if(length(wb$sheet_names) > 0) {saveWorkbook(wb = wb, file = paste(file.name.prefix, "xlsx", sep = "."), overwrite = T)}
+# Perform risk regression analysis.
 
 if(nrow(res.sig) > 0) {
 
@@ -511,12 +497,12 @@ risk.reg.pdf <- function(m.name) {
     
     if(class(m.rr) == "Score") {
       if(any(grepl(colnames(m.rr$ROC$plotframe), pattern = "model"))) {
-      if(is.multivar != any(grepl(names(m.rr$models), pattern = "Multivariate model"))) {stop("The model type evaluation failed.")}
+      if(is.multivar != any(grepl(names(m.rr$models), pattern = "Multivariable model"))) {stop("The model type evaluation failed.")}
       if(!is.null(m.rr.bs)) {
         if(any(grepl(colnames(m.rr.bs$AUC$score), pattern = "model"))) {
         if(is.multivar) {
-          m.rr.bs.auc.score.multi <- subset(m.rr.bs$AUC$score, subset = model == "Multivariate model")
-          m.rr.bs.auc.score.uni <- subset(m.rr.bs$AUC$score, subset = model == "Univariate model")
+          m.rr.bs.auc.score.multi <- subset(m.rr.bs$AUC$score, subset = model == "Multivariable model")
+          m.rr.bs.auc.score.uni <- subset(m.rr.bs$AUC$score, subset = model == "Univariable model")
           if(mod.type == "Cox") {
             m.rr.bs.auc.score.multi <- f.auc.filter(m.rr.bs.auc.score.multi)
             m.rr.bs.auc.score.uni <- f.auc.filter(m.rr.bs.auc.score.uni)
@@ -525,18 +511,20 @@ risk.reg.pdf <- function(m.name) {
                 m.rr.bs.auc.score.multi[m.rr.bs.auc.score.multi[["times"]] == time,][["AUC"]]
             }
             best.time.bs <- max(m.rr.bs.auc.score.uni[["times"]][which(AUC.sums == AUC.sums[which.max(AUC.sums)])])
+            m.rr.list$besttime <- best.time.bs
           }
         } else {
-          m.rr.bs.auc.score.uni <- subset(m.rr.bs$AUC$score, subset = model == "Univariate model")
+          m.rr.bs.auc.score.uni <- subset(m.rr.bs$AUC$score, subset = model == "Univariable model")
           if(mod.type == "Cox") {
             m.rr.bs.auc.score.uni <- f.auc.filter(m.rr.bs.auc.score.uni)
             best.time.bs <- max(m.rr.bs.auc.score.uni[m.rr.bs.auc.score.uni$AUC == max(m.rr.bs.auc.score.uni$AUC[!is.na(m.rr.bs.auc.score.uni$AUC)]),][["times"]])
+            m.rr.list$besttime <- best.time.bs
           }
         }
         if(is.multivar) {
           if(max(m.rr.bs.auc.score.uni$AUC[!is.na(m.rr.bs.auc.score.uni$AUC)]) <= 0.5 | max(m.rr.bs.auc.score.multi$AUC[!is.na(m.rr.bs.auc.score.multi$AUC)]) <= 0.5) {
-          m.rr.auc.score.multi <- subset(m.rr$AUC$score, subset = model == "Multivariate model")
-          m.rr.auc.score.uni <- subset(m.rr$AUC$score, subset = model == "Univariate model")
+          m.rr.auc.score.multi <- subset(m.rr$AUC$score, subset = model == "Multivariable model")
+          m.rr.auc.score.uni <- subset(m.rr$AUC$score, subset = model == "Univariable model")
           if(mod.type == "Cox") {
             m.rr.auc.score.multi <- f.auc.filter(m.rr.auc.score.multi)
             m.rr.auc.score.uni <- f.auc.filter(m.rr.auc.score.uni)
@@ -545,15 +533,17 @@ risk.reg.pdf <- function(m.name) {
                 m.rr.auc.score.multi[m.rr.auc.score.multi[["times"]] == time,][["AUC"]]
             }
             best.time <- max(m.rr.auc.score.uni[["times"]][which(AUC.sums == AUC.sums[which.max(AUC.sums)])])
+            m.rr.list$besttime <- best.time
             rm(best.time.bs)
           }
         }
         } else {
           if(max(m.rr.bs.auc.score.uni$AUC[!is.na(m.rr.bs.auc.score.uni$AUC)]) <= 0.5) {
-          m.rr.auc.score.uni <- subset(m.rr$AUC$score, subset = model == "Univariate model")
+          m.rr.auc.score.uni <- subset(m.rr$AUC$score, subset = model == "Univariable model")
           if(mod.type == "Cox") {
             m.rr.auc.score.uni <- f.auc.filter(m.rr.auc.score.uni)
             best.time <- max(m.rr.auc.score.uni[m.rr.auc.score.uni$AUC == max(m.rr.auc.score.uni$AUC[!is.na(m.rr.auc.score.uni$AUC)]),][["times"]])
+            m.rr.list$besttime <- best.time
             rm(best.time.bs)
           }
         }
@@ -561,8 +551,8 @@ risk.reg.pdf <- function(m.name) {
       }
       } else {
         if(is.multivar) {
-          m.rr.auc.score.multi <- subset(m.rr$AUC$score, subset = model == "Multivariate model")
-          m.rr.auc.score.uni <- subset(m.rr$AUC$score, subset = model == "Univariate model")
+          m.rr.auc.score.multi <- subset(m.rr$AUC$score, subset = model == "Multivariable model")
+          m.rr.auc.score.uni <- subset(m.rr$AUC$score, subset = model == "Univariable model")
           if(mod.type == "Cox") {
             m.rr.auc.score.multi <- f.auc.filter(m.rr.auc.score.multi)
             m.rr.auc.score.uni <- f.auc.filter(m.rr.auc.score.uni)
@@ -571,12 +561,14 @@ risk.reg.pdf <- function(m.name) {
               m.rr.auc.score.multi[m.rr.auc.score.multi[["times"]] == time,][["AUC"]]
             }
           best.time <- max(m.rr.auc.score.uni[["times"]][which(AUC.sums == AUC.sums[which.max(AUC.sums)])])
+          m.rr.list$besttime <- best.time
           }
         } else {
-          m.rr.auc.score.uni <- subset(m.rr$AUC$score, subset = model == "Univariate model")
+          m.rr.auc.score.uni <- subset(m.rr$AUC$score, subset = model == "Univariable model")
           if(mod.type == "Cox") {
             m.rr.auc.score.uni <- f.auc.filter(m.rr.auc.score.uni)
             best.time <- max(m.rr.auc.score.uni[m.rr.auc.score.uni$AUC == max(m.rr.auc.score.uni$AUC[!is.na(m.rr.auc.score.uni$AUC)]),][["times"]])
+            m.rr.list$besttime <- best.time
           }
         }
       }
@@ -651,13 +643,13 @@ risk.reg.pdf <- function(m.name) {
       error = function(e){plot.new() + plot.window(xlim=c(-5,5), ylim=c(-5,5)); title(main = str_wrap(paste(models[i1], "(original model(s))", sep = "\n"), width = width * 10), cex.main = 1, sub="ERROR: The ROC plot was not generated due to an error.")}
       )
       if(mod.type == "Cox"){
-        if(is.continuous | variate == "multivar"){
+        if(is.continuous | variable == "multivar"){
           risks <- as.data.frame(predictRisk(m, newdata = sub.df, times = if(exists("best.time.bs")) {best.time.bs} else {best.time}))
           sub.df[["calculated_risks"]] <- risks[,1]
           sub.df[["risk_category"]][sub.df$calculated_risks >= m.rr.roc.df.sel$risk] <- "high"
           sub.df[["risk_category"]][sub.df$calculated_risks < m.rr.roc.df.sel$risk] <- "low"
           single.var <- gsub(sub(models[i1], pattern = "(^.*~ )([^\\+]*)( ?\\+?.*)(,.*$)", replacement = "\\2"), pattern = " *", replacement = "")
-          if(is.continuous & variate == "univar"){
+          if(is.continuous & variable == "univar"){
             colnames(sub.df)[[length(colnames(sub.df))]] <- "risk_category"
             km.formula <- as.formula(sub(as.character(res.sig[["Formula"]][i1]), pattern = "~ .*", replacement = paste("~", colnames(sub.df)[[length(colnames(sub.df))]])))
           } else {
@@ -734,7 +726,8 @@ risk.reg.pdf <- function(m.name) {
         bar.plot <- ggplot(sub.df.sub) +
           geom_bar(aes(x = reorder(.data[[main.samples]], as.numeric(.data[[catvar]])), y = .data[[single.var]], fill = .data[[catvar]]), stat = "identity", show.legend = T) +
           scale_fill_manual(values = cols25()) +
-          labs(title = paste(models[i1], paste0("(N = ", nrow(sub.df.sub), ")"), sep = "\n"), x = main.samples) +
+          labs(title = paste(models[i1], if(mod.type == "Cox") {paste("(Observation time:", 
+          if(exists("best.time.bs")) {best.time.bs} else {best.time}, "days)")}, paste0("(N = ", nrow(sub.df.sub), ")"), sep = "\n"), x = main.samples) +
           annotate(geom = "text", x = (length(box.plot$data[[catvar]])+1)/2,
                    y = max(box.plot$data[[single.var]]) * 1.05,
                    label = test.res.label) +
@@ -752,6 +745,7 @@ risk.reg.pdf <- function(m.name) {
       plot.new() + plot.window(xlim=c(-5,5), ylim=c(-5,5)); title(main = str_wrap(models[i1], width = width * 10), cex.main = 1, sub=paste(m.rr))
     }
     dev.off()
+    return(m.rr.list)
   }
 
   m.name <- models[i1]
@@ -791,29 +785,29 @@ risk.reg.pdf <- function(m.name) {
   test.res <- NULL
   if(is.multivar) {
     if(mod.type == "Cox"){
-      m.rr <- try(riskRegression::Score(list("Multivariate model" = m, "Univariate model" = m.univ), formula = risk.formula, conf.int=TRUE, data = sub.df, times=times, metrics="auc", plots="roc", summary='risks'))
+      m.rr <- try(riskRegression::Score(list("Multivariable model" = m, "Univariable model" = m.univ), formula = risk.formula, conf.int=TRUE, data = sub.df, times=times, metrics="auc", plots="roc", summary='risks'))
       if(class(m.rr) == "Score") {
-        m.rr.bs.list <- foreach(B = Bs) %:% foreach::when(is.null(test.res)) %do% {test.res <- tryCatch(riskRegression::Score(list("Multivariate model" = m, "Univariate model" = m.univ), formula = risk.formula, conf.int=TRUE, data = sub.df, times=times, metrics="auc", plots="roc", summary='risks', split.method="bootcv", B = B, progress.bar = NULL), error = function(e){return(NULL)})}} else {
+        m.rr.bs.list <- foreach(B = Bs) %:% foreach::when(is.null(test.res)) %do% {test.res <- tryCatch(riskRegression::Score(list("Multivariable model" = m, "Univariable model" = m.univ), formula = risk.formula, conf.int=TRUE, data = sub.df, times=times, metrics="auc", plots="roc", summary='risks', split.method="bootcv", B = B, progress.bar = NULL), error = function(e){return(NULL)})}} else {
           m.rr.bs.list <- list(NULL) 
         }
       } else {
-      m.rr <- try(riskRegression::Score(list("Multivariate model" = m, "Univariate model" = m.univ), formula = risk.formula, conf.int=TRUE, data = sub.df, metrics="auc", plots="roc", summary='risks'))
+      m.rr <- try(riskRegression::Score(list("Multivariable model" = m, "Univariable model" = m.univ), formula = risk.formula, conf.int=TRUE, data = sub.df, metrics="auc", plots="roc", summary='risks'))
       if(class(m.rr) == "Score") {
-      m.rr.bs.list <- foreach(B = Bs) %:% foreach::when(is.null(test.res)) %do% {test.res <- tryCatch(riskRegression::Score(list("Multivariate model" = m, "Univariate model" = m.univ), formula = risk.formula, conf.int=TRUE, data = sub.df, metrics="auc", plots="roc", summary='risks', split.method="bootcv", B = B, progress.bar = NULL), error = function(e){return(NULL)})}} else {
+      m.rr.bs.list <- foreach(B = Bs) %:% foreach::when(is.null(test.res)) %do% {test.res <- tryCatch(riskRegression::Score(list("Multivariable model" = m, "Univariable model" = m.univ), formula = risk.formula, conf.int=TRUE, data = sub.df, metrics="auc", plots="roc", summary='risks', split.method="bootcv", B = B, progress.bar = NULL), error = function(e){return(NULL)})}} else {
       m.rr.bs.list <- list(NULL)
       }
       }
     } else {
     if(mod.type == "Cox"){
-      m.rr <- try(riskRegression::Score(list("Univariate model" = m), formula = risk.formula, conf.int=TRUE, data = sub.df, times=times, metrics="auc", plots="roc", summary='risks'))
+      m.rr <- try(riskRegression::Score(list("Univariable model" = m), formula = risk.formula, conf.int=TRUE, data = sub.df, times=times, metrics="auc", plots="roc", summary='risks'))
       if(class(m.rr) == "Score") {
-      m.rr.bs.list <- foreach(B = Bs) %:% foreach::when(is.null(test.res)) %do% {test.res <- tryCatch(riskRegression::Score(list("Univariate model" = m), formula = risk.formula, conf.int=TRUE, data = sub.df, times=times, metrics="auc", plots="roc", summary='risks', split.method="bootcv", B = B, progress.bar = NULL), error = function(e){return(NULL)})}} else {
+      m.rr.bs.list <- foreach(B = Bs) %:% foreach::when(is.null(test.res)) %do% {test.res <- tryCatch(riskRegression::Score(list("Univariable model" = m), formula = risk.formula, conf.int=TRUE, data = sub.df, times=times, metrics="auc", plots="roc", summary='risks', split.method="bootcv", B = B, progress.bar = NULL), error = function(e){return(NULL)})}} else {
       m.rr.bs.list <- list(NULL) 
       }
       } else {
-      m.rr <- try(riskRegression::Score(list("Univariate model" = m), formula = risk.formula, conf.int=TRUE, data = sub.df, metrics="auc", plots="roc", summary='risks'))
+      m.rr <- try(riskRegression::Score(list("Univariable model" = m), formula = risk.formula, conf.int=TRUE, data = sub.df, metrics="auc", plots="roc", summary='risks'))
       if(class(m.rr) == "Score") {
-      m.rr.bs.list <- foreach(B = Bs) %:% foreach::when(is.null(test.res)) %do% {test.res <- tryCatch(riskRegression::Score(list("Univariate model" = m), formula = risk.formula, conf.int=TRUE, data = sub.df, metrics="auc", plots="roc", summary='risks', split.method="bootcv", B = B, progress.bar = NULL), error = function(e){return(NULL)})}} else {
+      m.rr.bs.list <- foreach(B = Bs) %:% foreach::when(is.null(test.res)) %do% {test.res <- tryCatch(riskRegression::Score(list("Univariable model" = m), formula = risk.formula, conf.int=TRUE, data = sub.df, metrics="auc", plots="roc", summary='risks', split.method="bootcv", B = B, progress.bar = NULL), error = function(e){return(NULL)})}} else {
       m.rr.bs.list <- list(NULL)
       }
       }
@@ -823,7 +817,7 @@ m.rr.list <- list("m.rr" = m.rr, "m.rr.bs.list" = m.rr.bs.list)
 m.rr.list$m.rr.bs.list <- m.rr.list$m.rr.bs.list[sapply(m.rr.list$m.rr.bs.list, class) == "Score"]
 m.rr.bs <- if(length(m.rr.list$m.rr.bs.list) > 0) {m.rr.list$m.rr.bs.list[[1]]} else {NULL}
 
-risk.reg.pdf(m.name = m.name)
+m.rr.list <- risk.reg.pdf(m.name = m.name)
 
 rm(i1, uni.formula)
 },
@@ -844,6 +838,66 @@ finally = suppressWarnings(rm(i1))
 }
 names(rr.models.list) <- models
 
+# Get best times and AUC values for all significant models.
+
+best_times_aucs <- foreach(rr.models.index = seq(length(rr.models.list)), .combine = rbind) %dopar% {
+    model.name <- names(rr.models.list)[rr.models.index]
+    rr.models <- rr.models.list[[rr.models.index]]
+    if("besttime" %in% names(rr.models)) {
+        if(class(rr.models$m.rr) == "Score") {
+            original_AUCs <- subset(rr.models$m.rr$AUC$score, times == rr.models$besttime) %>% 
+            dplyr::select(c("model", "AUC")) %>% 
+            add_columns("id" = 1) %>% 
+            as.data.frame() %>% reshape(idvar = "id", timevar = "model", direction = "wide") %>% 
+    dplyr::select(!"id") %>% setNames(gsub(colnames(.), pattern = " model", replacement = "_original_model"))
+        } else {
+            original_AUCs <- if(is.multivar) {c(NA_integer_, NA_integer_)} else {NA_integer_}
+        }
+        if(class(rr.models$m.rr.bs.list[[1]]) == "Score") {
+            bootstrapped_AUCs <- subset(rr.models$m.rr.bs.list[[1]]$AUC$score, times == rr.models$besttime) %>% 
+                dplyr::select(c("model", "AUC")) %>% 
+                add_columns("id" = 1) %>% 
+                as.data.frame() %>% reshape(idvar = "id", timevar = "model", direction = "wide") %>% 
+        dplyr::select(!"id") %>% setNames(gsub(colnames(.), pattern = " model", replacement = "_bootstrapped_model"))
+        } else {
+            bootstrapped_AUCs <- if(is.multivar) {c(NA_integer_, NA_integer_)} else {NA_integer_}
+    }
+    Best_time <- setNames(rr.models$besttime, nm = "Best_time")
+    Model <- setNames(model.name, nm = "Model")
+    cbind(Model, Best_time, original_AUCs, bootstrapped_AUCs)
+} else {
+       if(class(rr.models$m.rr) == "Score") {
+            original_AUCs <- rr.models$m.rr$AUC$score %>% 
+            dplyr::select(c("model", "AUC")) %>% 
+            add_columns("id" = 1) %>% 
+            as.data.frame() %>% reshape(idvar = "id", timevar = "model", direction = "wide") %>% 
+    dplyr::select(!"id") %>% setNames(gsub(colnames(.), pattern = " model", replacement = "_original_model"))
+        } else {
+            original_AUCs <- if(is.multivar) {c(NA_integer_, NA_integer_)} else {NA_integer_}
+        }
+        if(class(rr.models$m.rr.bs.list[[1]]) == "Score") {
+            bootstrapped_AUCs <- rr.models$m.rr.bs.list[[1]]$AUC$score %>% 
+                dplyr::select(c("model", "AUC")) %>% 
+                add_columns("id" = 1) %>% 
+                as.data.frame() %>% reshape(idvar = "id", timevar = "model", direction = "wide") %>% 
+        dplyr::select(!"id") %>% setNames(gsub(colnames(.), pattern = " model", replacement = "_bootstrapped_model"))
+        } else {
+            bootstrapped_AUCs <- if(is.multivar) {c(NA_integer_, NA_integer_)} else {NA_integer_}
+    }
+    Best_time <- setNames(NA_integer_, nm = "Best_time")
+    Model <- setNames(model.name, nm = "Model")
+    cbind(Model, Best_time, original_AUCs, bootstrapped_AUCs)
+}
+}
+
+# Combine regression analyses results with corresponding best times and AUC values.
+
+res.sig.all <- res.sig.all %>% unite(col = "Model", c("Formula", "Data"), sep = ", subset = ")
+res.sig.all <- merge(x = res.sig.all, y = best_times_aucs, by.x = "Model", by.y = "Model", all.x = T, sort = F)
+res.sig.all <- res.sig.all %>% separate(col = "Model", c("Formula", "Data"), sep = ", subset = ")
+
+# Combine temporary pdf file into a final pdf file and remove all temporary pdf files.
+
 pdffiles <- list.files(pattern = "^(riskRegression\\.)([0-9]+)(.*\\.pdf\\.tmp$)")
 pdffiles <- pdffiles[order(as.numeric(sub(pdffiles, pattern = "^(riskRegression\\.)([0-9]+)(.*\\.pdf\\.tmp$)", replacement = "\\2")))]
 pdf_combine(input = pdffiles, output = paste(file.name.prefix, "pdf", sep = "."))
@@ -855,6 +909,32 @@ warning("There are no significant results of regression analyses.")
   plot.new() + plot.window(xlim=c(-5,5), ylim=c(-5,5)); title(main = "INFO: There are no significant results of regression analyses.", cex.main = 1)
   dev.off()
 }
+
+wb <- createWorkbook()
+
+xlsx.add.sheet <- function(df, df.name){
+  if(ncol(df) > 2**14 | nrow(df) > 2**20){
+    file.name.prefix <- sub(stri_reverse(substr(stri_reverse(file.name.prefix), start = 1, stop = 202)), pattern = "^\\.*", replacement = "")
+    if(df.name == "Data") {
+      write.table(x = df, row.names = F, quote = F, sep = ";", file = paste(file.name.prefix, df.name, "csv", sep = "."))} else {
+      write.table(x = df, row.names = T, col.names = NA, quote = F, sep = ";", file = paste(file.name.prefix, df.name, "csv", sep = "."))}
+} else {
+  addWorksheet(wb = wb, sheetName = df.name)
+  if(df.name == "Data") {
+    writeData(wb = wb, sheet = df.name, x = df, rowNames = F, na.string = "NA", keepNA = T) 
+  } else if(df.name == "Clin.data_summary") {
+      writeData(wb = wb, sheet = df.name, x = df, rowNames = T, colNames = F, na.string = "NA", keepNA = T)
+  } else {
+      writeData(wb = wb, sheet = df.name, x = df, rowNames = T, na.string = "NA", keepNA = T)}}}
+
+xlsx.add.sheet(df = df, df.name = "Data")
+xlsx.add.sheet(df = df.summary.fin, df.name = "Clin.data_summary")
+xlsx.add.sheet(df = res, df.name = "All_res")
+xlsx.add.sheet(df = res.sig.all, df.name = "Sig_res")
+xlsx.add.sheet(df = res.failed, df.name = "Failed_res")
+
+if(length(wb$sheet_names) > 0) {saveWorkbook(wb = wb, file = paste(file.name.prefix, "xlsx", sep = "."), overwrite = T)}
+
 save.image(paste(file.name.prefix, "RData", sep = "."))
 
 sessionInfo()
