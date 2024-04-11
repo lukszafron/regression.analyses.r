@@ -70,7 +70,7 @@ if(!is.continuous) {
 
 if(is.continuous) {
   if(calibrate) {
-    main.table <- main.table %>% mutate(across(.cols = (!main.samples), .fns = function(x) {x/max(x)}))
+    main.table <- main.table %>% mutate(across(.cols = (!main.samples), .fns = function(x) {x/max(x[!is.na(x)])}))
   }
 }
 
@@ -116,13 +116,12 @@ names(sub.vars.list) <- sub.vars} else if(length(sub.vars) == 1 & sub.vars == "A
 sub.vars.list <- list("ALL_SAMPLES" = "ALL_SAMPLES")} else 
   {stop("The subsetting vars list seems to be incorrect.")}
 
-file.name.prefix <- paste("Reg_anal", paste(atypes, collapse = ","), variable, main.table.name, paste("cont", is.continuous, sep = ":"), df.table.name, paste0("dep_vars:", paste(dep.vars, collapse = ",")), paste0("group_vars:", paste(sub.vars, collapse = ",")), paste0("other_vars:", paste(other.factors, collapse = "+")), paste0("cal:", calibrate), sep = ".")
+file.name.prefix <- paste("Reg_anal", paste(atypes, collapse = ","), variable, main.table.name, paste("cont", is.continuous, sep = ":"), df.table.name, paste0("dep_vars:", paste(dep.vars, collapse = ",")), paste0("group_vars:", paste(sub.vars, collapse = ",")), paste0("other_vars:", if(length(other.factors) == 0) {"NA"} else {paste(other.factors, collapse = "+")}), paste0("cal:", calibrate), sep = ".")
 file.name.prefix <- gsub(file.name.prefix, pattern = "BAM_files_with_duplicates", replacement = "BAM_w.dups")
 file.name.prefix <- gsub(file.name.prefix, pattern = "BAM_files_without_duplicates", replacement = "BAM_wo.dups")
 file.name.prefix <- gsub(file.name.prefix, pattern = "TRUE", replacement = "T")
 file.name.prefix <- gsub(file.name.prefix, pattern = "FALSE", replacement = "F")
 
-if(length(other.factors) == 0) {file.name.prefix <- paste0(file.name.prefix, "NA")}
 file.name.prefix <- sub(stri_reverse(substr(stri_reverse(file.name.prefix), start = 1, stop = 212)), pattern = "^\\.*", replacement = "")
 
 # save.image(paste(file.name.prefix, "RData", sep = "."))
@@ -440,7 +439,7 @@ if(all(sub.vars != "ALL_SAMPLES")) {
 
   N <- nrow(df)
   df.summary <- df %>% dplyr::select(dep.var.cats, dep.var.conts, other.factors) %>% 
-    sapply(., summary) %>% unlist() %>% as.data.frame()
+    lapply(., summary) %>% unlist() %>% as.data.frame()
   df.summary.fin.all <- rbind(df.summary, N)
   rownames(df.summary.fin.all)[nrow(df.summary.fin.all)] <- "N"
   df.summary.fin.all <- df.summary.fin.all[c(nrow(df.summary.fin.all), 1:(nrow(df.summary.fin.all)-1)), , drop = F]
@@ -787,13 +786,13 @@ risk.reg.pdf <- function(m.name) {
     if(mod.type == "Cox"){
       m.rr <- try(riskRegression::Score(list("Multivariable model" = m, "Univariable model" = m.univ), formula = risk.formula, conf.int=TRUE, data = sub.df, times=times, metrics="auc", plots="roc", summary='risks'))
       if(class(m.rr) == "Score") {
-        m.rr.bs.list <- foreach(B = Bs) %:% foreach::when(is.null(test.res)) %do% {test.res <- tryCatch(riskRegression::Score(list("Multivariable model" = m, "Univariable model" = m.univ), formula = risk.formula, conf.int=TRUE, data = sub.df, times=times, metrics="auc", plots="roc", summary='risks', split.method="bootcv", B = B, progress.bar = NULL), error = function(e){return(NULL)})}} else {
+        m.rr.bs.list <- foreach(B = Bs) %:% foreach::when(is.null(test.res) | {if(class(test.res) == "Score") {!is.data.frame(test.res$AUC$score)} else {TRUE}}) %do% {test.res <- tryCatch(riskRegression::Score(list("Multivariable model" = m, "Univariable model" = m.univ), formula = risk.formula, conf.int=TRUE, data = sub.df, times=times, metrics="auc", summary='risks', split.method="bootcv", B = B, progress.bar = NULL), error = function(e){return(NULL)})}} else {
           m.rr.bs.list <- list(NULL) 
         }
       } else {
       m.rr <- try(riskRegression::Score(list("Multivariable model" = m, "Univariable model" = m.univ), formula = risk.formula, conf.int=TRUE, data = sub.df, metrics="auc", plots="roc", summary='risks'))
       if(class(m.rr) == "Score") {
-      m.rr.bs.list <- foreach(B = Bs) %:% foreach::when(is.null(test.res)) %do% {test.res <- tryCatch(riskRegression::Score(list("Multivariable model" = m, "Univariable model" = m.univ), formula = risk.formula, conf.int=TRUE, data = sub.df, metrics="auc", plots="roc", summary='risks', split.method="bootcv", B = B, progress.bar = NULL), error = function(e){return(NULL)})}} else {
+      m.rr.bs.list <- foreach(B = Bs) %:% foreach::when(is.null(test.res) | {if(class(test.res) == "Score") {!is.data.frame(test.res$AUC$score)} else {TRUE}}) %do% {test.res <- tryCatch(riskRegression::Score(list("Multivariable model" = m, "Univariable model" = m.univ), formula = risk.formula, conf.int=TRUE, data = sub.df, metrics="auc", summary='risks', split.method="bootcv", B = B, progress.bar = NULL), error = function(e){return(NULL)})}} else {
       m.rr.bs.list <- list(NULL)
       }
       }
@@ -801,20 +800,20 @@ risk.reg.pdf <- function(m.name) {
     if(mod.type == "Cox"){
       m.rr <- try(riskRegression::Score(list("Univariable model" = m), formula = risk.formula, conf.int=TRUE, data = sub.df, times=times, metrics="auc", plots="roc", summary='risks'))
       if(class(m.rr) == "Score") {
-      m.rr.bs.list <- foreach(B = Bs) %:% foreach::when(is.null(test.res)) %do% {test.res <- tryCatch(riskRegression::Score(list("Univariable model" = m), formula = risk.formula, conf.int=TRUE, data = sub.df, times=times, metrics="auc", plots="roc", summary='risks', split.method="bootcv", B = B, progress.bar = NULL), error = function(e){return(NULL)})}} else {
+      m.rr.bs.list <- foreach(B = Bs) %:% foreach::when(is.null(test.res) | {if(class(test.res) == "Score") {!is.data.frame(test.res$AUC$score)} else {TRUE}}) %do% {test.res <- tryCatch(riskRegression::Score(list("Univariable model" = m), formula = risk.formula, conf.int=TRUE, data = sub.df, times=times, metrics="auc", summary='risks', split.method="bootcv", B = B, progress.bar = NULL), error = function(e){return(NULL)})}} else {
       m.rr.bs.list <- list(NULL) 
       }
       } else {
       m.rr <- try(riskRegression::Score(list("Univariable model" = m), formula = risk.formula, conf.int=TRUE, data = sub.df, metrics="auc", plots="roc", summary='risks'))
       if(class(m.rr) == "Score") {
-      m.rr.bs.list <- foreach(B = Bs) %:% foreach::when(is.null(test.res)) %do% {test.res <- tryCatch(riskRegression::Score(list("Univariable model" = m), formula = risk.formula, conf.int=TRUE, data = sub.df, metrics="auc", plots="roc", summary='risks', split.method="bootcv", B = B, progress.bar = NULL), error = function(e){return(NULL)})}} else {
+      m.rr.bs.list <- foreach(B = Bs) %:% foreach::when(is.null(test.res) | {if(class(test.res) == "Score") {!is.data.frame(test.res$AUC$score)} else {TRUE}}) %do% {test.res <- tryCatch(riskRegression::Score(list("Univariable model" = m), formula = risk.formula, conf.int=TRUE, data = sub.df, metrics="auc", summary='risks', split.method="bootcv", B = B, progress.bar = NULL), error = function(e){return(NULL)})}} else {
       m.rr.bs.list <- list(NULL)
       }
       }
     }
       
 m.rr.list <- list("m.rr" = m.rr, "m.rr.bs.list" = m.rr.bs.list)
-m.rr.list$m.rr.bs.list <- m.rr.list$m.rr.bs.list[sapply(m.rr.list$m.rr.bs.list, class) == "Score"]
+m.rr.list$m.rr.bs.list <- m.rr.list$m.rr.bs.list[sapply(m.rr.list$m.rr.bs.list, function(x) {class(x) == "Score" & {if(class(x) == "Score") {is.data.frame(x$AUC$score)} else {FALSE}}})]
 m.rr.bs <- if(length(m.rr.list$m.rr.bs.list) > 0) {m.rr.list$m.rr.bs.list[[1]]} else {NULL}
 
 m.rr.list <- risk.reg.pdf(m.name = m.name)
@@ -842,47 +841,82 @@ names(rr.models.list) <- models
 
 best_times_aucs <- foreach(rr.models.index = seq(length(rr.models.list)), .combine = rbind) %dopar% {
     model.name <- names(rr.models.list)[rr.models.index]
+    if(grepl(model.name, pattern = "\\+")) {is.multivar <- TRUE} else {is.multivar <- FALSE}
     rr.models <- rr.models.list[[rr.models.index]]
     if("besttime" %in% names(rr.models)) {
         if(class(rr.models$m.rr) == "Score") {
+          if(!is.null(rr.models$m.rr$AUC$score)) {
             original_AUCs <- subset(rr.models$m.rr$AUC$score, times == rr.models$besttime) %>% 
             dplyr::select(c("model", "AUC")) %>% 
             add_columns("id" = 1) %>% 
             as.data.frame() %>% reshape(idvar = "id", timevar = "model", direction = "wide") %>% 
     dplyr::select(!"id") %>% setNames(gsub(colnames(.), pattern = " model", replacement = "_original_model"))
         } else {
-            original_AUCs <- if(is.multivar) {c(NA_integer_, NA_integer_)} else {NA_integer_}
+            original_AUCs <- if(is.multivar) {setNames(data.frame(NA, NA), nm = c("AUC.Multivariable_original_model", "AUC.Univariable_original_model"))} else {
+              setNames(data.frame(NA), nm = c("AUC.Univariable_original_model"))}
         }
-        if(class(rr.models$m.rr.bs.list[[1]]) == "Score") {
-            bootstrapped_AUCs <- subset(rr.models$m.rr.bs.list[[1]]$AUC$score, times == rr.models$besttime) %>% 
+        } else {
+           original_AUCs <- if(is.multivar) {setNames(data.frame(NA, NA), nm = c("AUC.Multivariable_original_model", "AUC.Univariable_original_model"))} else {
+              setNames(data.frame(NA), nm = c("AUC.Univariable_original_model"))}          
+        }
+        if(length(rr.models$m.rr.bs.list) > 0) {
+          if(class(rr.models$m.rr.bs.list[[1]]) == "Score") {
+            if(!is.null(rr.models$m.rr.bs.list[[1]]$AUC$score)) {
+              bootstrapped_AUCs <- subset(rr.models$m.rr.bs.list[[1]]$AUC$score, times == rr.models$besttime) %>% 
                 dplyr::select(c("model", "AUC")) %>% 
                 add_columns("id" = 1) %>% 
                 as.data.frame() %>% reshape(idvar = "id", timevar = "model", direction = "wide") %>% 
         dplyr::select(!"id") %>% setNames(gsub(colnames(.), pattern = " model", replacement = "_bootstrapped_model"))
         } else {
-            bootstrapped_AUCs <- if(is.multivar) {c(NA_integer_, NA_integer_)} else {NA_integer_}
+            bootstrapped_AUCs <- if(is.multivar) {setNames(data.frame(NA, NA), nm = c("AUC.Multivariable_bootstrapped_model", "AUC.Univariable_bootstrapped_model"))} else {
+              setNames(data.frame(NA), nm = c("AUC.Univariable_bootstrapped_model"))}
+        }
+        } else {
+            bootstrapped_AUCs <- if(is.multivar) {setNames(data.frame(NA, NA), nm = c("AUC.Multivariable_bootstrapped_model", "AUC.Univariable_bootstrapped_model"))} else {
+              setNames(data.frame(NA), nm = c("AUC.Univariable_bootstrapped_model"))}          
+        }
+        } else {
+            bootstrapped_AUCs <- if(is.multivar) {setNames(data.frame(NA, NA), nm = c("AUC.Multivariable_bootstrapped_model", "AUC.Univariable_bootstrapped_model"))} else {
+              setNames(data.frame(NA), nm = c("AUC.Univariable_bootstrapped_model"))}
     }
     Best_time <- setNames(rr.models$besttime, nm = "Best_time")
     Model <- setNames(model.name, nm = "Model")
     cbind(Model, Best_time, original_AUCs, bootstrapped_AUCs)
 } else {
        if(class(rr.models$m.rr) == "Score") {
+        if(!is.null(rr.models$m.rr$AUC$score)) {
             original_AUCs <- rr.models$m.rr$AUC$score %>% 
             dplyr::select(c("model", "AUC")) %>% 
             add_columns("id" = 1) %>% 
             as.data.frame() %>% reshape(idvar = "id", timevar = "model", direction = "wide") %>% 
     dplyr::select(!"id") %>% setNames(gsub(colnames(.), pattern = " model", replacement = "_original_model"))
         } else {
-            original_AUCs <- if(is.multivar) {c(NA_integer_, NA_integer_)} else {NA_integer_}
+            original_AUCs <- if(is.multivar) {setNames(data.frame(NA, NA), nm = c("AUC.Multivariable_original_model", "AUC.Univariable_original_model"))} else {
+              setNames(data.frame(NA), nm = c("AUC.Univariable_original_model"))}
         }
-        if(class(rr.models$m.rr.bs.list[[1]]) == "Score") {
-            bootstrapped_AUCs <- rr.models$m.rr.bs.list[[1]]$AUC$score %>% 
+       } else {
+            original_AUCs <- if(is.multivar) {setNames(data.frame(NA, NA), nm = c("AUC.Multivariable_original_model", "AUC.Univariable_original_model"))} else {
+              setNames(data.frame(NA), nm = c("AUC.Univariable_original_model"))}
+       }
+        if(length(rr.models$m.rr.bs.list) > 0) {
+          if(class(rr.models$m.rr.bs.list[[1]]) == "Score") {
+            if(!is.null(rr.models$m.rr.bs.list[[1]]$AUC$score)) {
+              bootstrapped_AUCs <- rr.models$m.rr.bs.list[[1]]$AUC$score %>% 
                 dplyr::select(c("model", "AUC")) %>% 
                 add_columns("id" = 1) %>% 
                 as.data.frame() %>% reshape(idvar = "id", timevar = "model", direction = "wide") %>% 
         dplyr::select(!"id") %>% setNames(gsub(colnames(.), pattern = " model", replacement = "_bootstrapped_model"))
         } else {
-            bootstrapped_AUCs <- if(is.multivar) {c(NA_integer_, NA_integer_)} else {NA_integer_}
+            bootstrapped_AUCs <- if(is.multivar) {setNames(data.frame(NA, NA), nm = c("AUC.Multivariable_bootstrapped_model", "AUC.Univariable_bootstrapped_model"))} else {
+              setNames(data.frame(NA), nm = c("AUC.Univariable_bootstrapped_model"))}
+        }
+        } else {
+            bootstrapped_AUCs <- if(is.multivar) {setNames(data.frame(NA, NA), nm = c("AUC.Multivariable_bootstrapped_model", "AUC.Univariable_bootstrapped_model"))} else {
+              setNames(data.frame(NA), nm = c("AUC.Univariable_bootstrapped_model"))}          
+        }
+        } else {
+            bootstrapped_AUCs <- if(is.multivar) {setNames(data.frame(NA, NA), nm = c("AUC.Multivariable_bootstrapped_model", "AUC.Univariable_bootstrapped_model"))} else {
+              setNames(data.frame(NA), nm = c("AUC.Univariable_bootstrapped_model"))}
     }
     Best_time <- setNames(NA_integer_, nm = "Best_time")
     Model <- setNames(model.name, nm = "Model")
@@ -895,6 +929,7 @@ best_times_aucs <- foreach(rr.models.index = seq(length(rr.models.list)), .combi
 res.sig.all <- res.sig.all %>% unite(col = "Model", c("Formula", "Data"), sep = ", subset = ")
 res.sig.all <- merge(x = res.sig.all, y = best_times_aucs, by.x = "Model", by.y = "Model", all.x = T, sort = F)
 res.sig.all <- res.sig.all %>% separate(col = "Model", c("Formula", "Data"), sep = ", subset = ")
+res.sig.all <- res.sig.all[!duplicated(res.sig.all[1:11]), , drop = F]
 
 # Combine temporary pdf file into a final pdf file and remove all temporary pdf files.
 
@@ -920,7 +955,7 @@ xlsx.add.sheet <- function(df, df.name){
       write.table(x = df, row.names = T, col.names = NA, quote = F, sep = ";", file = paste(file.name.prefix, df.name, "csv", sep = "."))}
 } else {
   addWorksheet(wb = wb, sheetName = df.name)
-  if(df.name == "Data") {
+  if(df.name %in% c("Data", "Sig_res")) {
     writeData(wb = wb, sheet = df.name, x = df, rowNames = F, na.string = "NA", keepNA = T) 
   } else if(df.name == "Clin.data_summary") {
       writeData(wb = wb, sheet = df.name, x = df, rowNames = T, colNames = F, na.string = "NA", keepNA = T)
