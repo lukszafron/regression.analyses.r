@@ -401,7 +401,7 @@ res.failed <- subset(res.failed, subset = grepl(Factor, pattern = "(^#.*|^Too (m
 
 dep.var.cats <- sub(dep.vars, pattern = "^.*:", replacement = "")
 dep.var.conts <- sub(grep(dep.vars, pattern = ".*:.*", value = T), pattern = ":.*$", replacement = "")
-df <- df[df %>% dplyr::select(all_of(c(dep.var.conts, grep(dep.vars, pattern = ":", value = T, invert = T)))) %>% is.na %>% rowSums() == 0, , drop = F]
+# df <- df[df %>% dplyr::select(all_of(c(dep.var.conts, grep(dep.vars, pattern = ":", value = T, invert = T)))) %>% is.na %>% rowSums() == 0, , drop = F]
 
 if(all(sub.vars != "ALL_SAMPLES")) {
   df <- df %>% mutate(across(.cols = c(dep.var.cats, sub.vars), .fns = as.factor))
@@ -425,10 +425,9 @@ if(all(sub.vars != "ALL_SAMPLES")) {
   valid.cols <- foreach(i = colnames(df.summary), .combine = c) %do% {
      if(i %in% sub.vars) {i} else
      if(is.na(sum(df.summary[i]))) {i} else
-     if(str_contains(x = i, pattern = sub(dep.var.conts, pattern = "(^.*$)", replacement = "\\1\\."), logic = "OR")) {
-       if(!grepl(i, pattern = "\\.NA's$")) {i}} else
+     if(str_contains(x = i, pattern = sub(dep.var.conts, pattern = "(^.*$)", replacement = "\\1\\."), logic = "OR")) {i} else
      if(sum(df.summary[i]) >0) {i}
-      }
+    }
   df.summary <- df.summary[valid.cols]
   
   df.summary.fin <- cbind(df.summary, N)
