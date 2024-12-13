@@ -1,4 +1,4 @@
-# $${\color{lightgreen}Regression.analyses.r}$$
+# $${\color{green}Regression.analyses.r}$$
 
 This app allows for automating the multivariable and univariable Cox and logistic regression analyses and subsequent visualization of the results.
 
